@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PostPilot India</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar" aria-label="Dashboard summary">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">〒</span>
+          <div>
+            <h1>PostPilot</h1>
+            <p>India Post bulk tracker</p>
+          </div>
+        </div>
+
+        <section class="panel compact">
+          <p class="eyebrow">Today</p>
+          <div class="hero-number" id="total-count">0</div>
+          <p class="muted">saved consignments</p>
+        </section>
+
+        <section class="panel stat-list" aria-label="Status summary">
+          <div>
+            <span class="dot delivered"></span>
+            Delivered
+            <strong id="delivered-count">0</strong>
+          </div>
+          <div>
+            <span class="dot transit"></span>
+            In transit
+            <strong id="transit-count">0</strong>
+          </div>
+          <div>
+            <span class="dot attention"></span>
+            Needs attention
+            <strong id="attention-count">0</strong>
+          </div>
+        </section>
+
+        <section class="panel">
+          <p class="eyebrow">Add Tracking IDs</p>
+          <form id="tracking-form">
+            <label class="sr-only" for="tracking-input">Tracking IDs</label>
+            <textarea
+              id="tracking-input"
+              rows="8"
+              placeholder="Paste India Post IDs, one per line"
+            ></textarea>
+            <label class="sr-only" for="note-input">Optional note</label>
+            <input id="note-input" type="text" placeholder="Optional batch note" />
+            <button type="submit">Save IDs</button>
+          </form>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Seller Console</p>
+            <h2>All parcels, one calm page.</h2>
+          </div>
+          <div class="actions">
+            <button class="ghost" id="import-btn" type="button">Import CSV</button>
+            <button class="ghost" id="export-btn" type="button">Export CSV</button>
+            <button id="refresh-btn" type="button">Refresh</button>
+          </div>
+          <input id="csv-input" type="file" accept=".csv,text/csv" hidden />
+        </header>
+
+        <nav class="filters" aria-label="Tracking filters">
+          <button class="active" data-filter="all" type="button">All</button>
+          <button data-filter="delivered" type="button">Delivered</button>
+          <button data-filter="transit" type="button">In transit</button>
+          <button data-filter="attention" type="button">Attention</button>
+        </nav>
+
+        <section class="table-panel" aria-live="polite">
+          <div class="table-head">
+            <div>
+              <p class="eyebrow">Live Board</p>
+              <h3 id="board-title">Saved consignments</h3>
+            </div>
+            <p class="muted" id="last-refresh">Not refreshed yet</p>
+          </div>
+
+          <div class="empty-state" id="empty-state">
+            <div class="empty-art" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <h3>No tracking IDs yet</h3>
+            <p>Paste a batch once. PostPilot will keep it here and refresh when you open the dashboard.</p>
+          </div>
+
+          <div class="table-wrap" id="table-wrap" hidden>
+            <table>
+              <thead>
+                <tr>
+                  <th>Tracking ID</th>
+                  <th>Status</th>
+                  <th>Last location</th>
+                  <th>Last update</th>
+                  <th>Age</th>
+                  <th>Note</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="tracking-table"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <template id="row-template">
+      <tr>
+        <td class="tracking-code"></td>
+        <td><span class="status-pill"></span></td>
+        <td class="location"></td>
+        <td class="updated"></td>
+        <td class="age"></td>
+        <td class="note"></td>
+        <td><button class="icon-btn" type="button" aria-label="Remove tracking ID">×</button></td>
+      </tr>
+    </template>
+
+    <script src="./src/app.js"></script>
+  </body>
+</html>
