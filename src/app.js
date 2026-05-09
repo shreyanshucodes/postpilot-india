@@ -1,279 +1,473 @@
-const STORAGE_KEY = "postpilot-india-trackings";
+const STORAGE_KEY = "postpilot-india-batches";
+const LEGACY_KEY = "postpilot-india-trackings";
 const REFRESH_KEY = "postpilot-india-last-refresh";
 
 const form = document.querySelector("#tracking-form");
 const trackingInput = document.querySelector("#tracking-input");
-const noteInput = document.querySelector("#note-input");
-const table = document.querySelector("#tracking-table");
-const tableWrap = document.querySelector("#table-wrap");
+const formHint = document.querySelector("#form-hint");
+const batchBoard = document.querySelector("#batch-board");
+const consignmentBoard = document.querySelector("#consignment-board");
 const emptyState = document.querySelector("#empty-state");
-const journeyBoard = document.querySelector("#journey-board");
-const rowTemplate = document.querySelector("#row-template");
-const journeyTemplate = document.querySelector("#journey-template");
+const batchTemplate = document.querySelector("#batch-template");
+const consignmentTemplate = document.querySelector("#consignment-template");
 const refreshButton = document.querySelector("#refresh-btn");
 const exportButton = document.querySelector("#export-btn");
 const importButton = document.querySelector("#import-btn");
 const csvInput = document.querySelector("#csv-input");
-const filterButtons = document.querySelectorAll("[data-filter]");
+const backButton = document.querySelector("#back-btn");
+const apiStatus = document.querySelector("#api-status");
 
-let activeFilter = "all";
-let records = loadRecords();
+let batches = loadBatches();
+let activeBatchId = null;
 
-const statusFlow = [
-  {
-    key: "transit",
-    label: "Booked",
-    location: "Booking office",
-    detail: "Shipment created",
-    step: 0,
-  },
-  {
-    key: "transit",
-    label: "In transit",
-    location: "Sorting hub",
-    detail: "Bag dispatched",
-    step: 1,
-  },
-  {
-    key: "transit",
-    label: "Out for delivery",
-    location: "Destination post office",
-    detail: "With delivery staff",
-    step: 2,
-  },
-  {
-    key: "delivered",
-    label: "Delivered",
-    location: "Customer address",
-    detail: "Delivery confirmed",
-    step: 3,
-  },
-  {
-    key: "attention",
-    label: "Needs attention",
-    location: "Destination post office",
-    detail: "No fresh scan",
-    step: 2,
-  },
-];
-
-const routeSteps = ["Booked", "Dispatched", "Hub scan", "Delivered"];
+const routeSteps = ["Booked", "Dispatched", "In Transit", "Out for Delivery", "Delivered"];
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  const ids = trackingInput.value
-    .split(/[\n, ]+/)
-    .map((id) => id.trim().toUpperCase())
-    .filter(Boolean);
+  const ids = parseTrackingIds(trackingInput.value);
+  const rejectedCount = trackingInput.value.split(/[\n, ]+/).filter(Boolean).length - ids.length;
 
-  const existingIds = new Set(records.map((record) => record.id));
-  const createdAt = new Date().toISOString();
-  const note = noteInput.value.trim();
+  if (!ids.length) {
+    formHint.textContent = "Paste valid India Post tracking IDs, one per line.";
+    formHint.classList.add("is-error");
+    return;
+  }
 
-  ids.forEach((id) => {
-    if (!existingIds.has(id)) {
-      records.push({
-        id,
-        note,
-        createdAt,
-        statusKey: "transit",
-        statusLabel: "Queued",
-        location: "Waiting for first refresh",
-        detail: "Saved locally",
-        step: 0,
-        origin: "Booking office",
-        destination: "Customer address",
-        updatedAt: null,
-      });
-    }
-  });
-
+  const batch = createBatch(ids);
+  batches.unshift(batch);
+  activeBatchId = batch.id;
   trackingInput.value = "";
-  noteInput.value = "";
-  saveRecords();
-  refreshAll();
+  formHint.textContent = rejectedCount
+    ? `Created batch with ${ids.length} ID(s). Ignored ${rejectedCount} invalid entry.`
+    : `Created batch with ${ids.length} ID(s).`;
+  formHint.classList.remove("is-error");
+  saveBatches();
+  render();
+  refreshBatch(batch.id);
 });
 
-refreshButton.addEventListener("click", refreshAll);
-exportButton.addEventListener("click", exportCsv);
-importButton.addEventListener("click", () => csvInput.click());
-csvInput.addEventListener("change", importCsv);
-
-filterButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    filterButtons.forEach((item) => item.classList.remove("active"));
-    button.classList.add("active");
-    activeFilter = button.dataset.filter;
-    render();
-  });
+refreshButton.addEventListener("click", () => {
+  if (activeBatchId) {
+    refreshBatch(activeBatchId);
+  } else {
+    refreshAll();
+  }
 });
 
-table.addEventListener("click", (event) => {
-  const removeButton = event.target.closest(".icon-btn");
-  if (!removeButton) return;
-  const id = removeButton.dataset.id;
-  records = records.filter((record) => record.id !== id);
-  saveRecords();
+backButton.addEventListener("click", () => {
+  activeBatchId = null;
   render();
 });
 
-function loadRecords() {
+importButton.addEventListener("click", () => csvInput.click());
+csvInput.addEventListener("change", importCsv);
+exportButton.addEventListener("click", exportCsv);
+
+batchBoard.addEventListener("click", (event) => {
+  const removeButton = event.target.closest(".batch-remove");
+  if (removeButton) {
+    const batchId = removeButton.dataset.batchId;
+    batches = batches.filter((batch) => batch.id !== batchId);
+    if (activeBatchId === batchId) activeBatchId = null;
+    saveBatches();
+    render();
+    return;
+  }
+
+  const button = event.target.closest(".batch-open");
+  if (!button) return;
+  activeBatchId = button.dataset.batchId;
+  render();
+  refreshBatch(activeBatchId);
+});
+
+consignmentBoard.addEventListener("click", (event) => {
+  const removeButton = event.target.closest(".parcel-remove");
+  if (removeButton) {
+    const batch = batches.find((item) => item.id === activeBatchId);
+    if (!batch) return;
+    batch.records = batch.records.filter((record) => record.id !== removeButton.dataset.id);
+    if (!batch.records.length) {
+      batches = batches.filter((item) => item.id !== batch.id);
+      activeBatchId = null;
+    }
+    saveBatches();
+    render();
+    return;
+  }
+
+  const button = event.target.closest(".parcel-main");
+  if (!button) return;
+  const card = button.closest(".parcel-card");
+  const details = card.querySelector(".parcel-details");
+  details.hidden = !details.hidden;
+  card.classList.toggle("is-open", !details.hidden);
+});
+
+function parseTrackingIds(value) {
+  return [...new Set(
+    value
+      .split(/[\n, ]+/)
+      .map((id) => id.trim().toUpperCase())
+      .filter(isValidConsignmentId),
+  )];
+}
+
+function createBatch(ids) {
+  const createdAt = new Date().toISOString();
+  return {
+    id: `batch-${Date.now()}`,
+    createdAt,
+    records: ids.map((id) => createRecord(id, createdAt)),
+  };
+}
+
+function createRecord(id, createdAt) {
+  return {
+    id,
+    createdAt,
+    statusKey: "transit",
+    statusLabel: "Queued",
+    location: "Awaiting live scan",
+    detail: "Saved locally. Live carrier data has not arrived yet.",
+    step: 0,
+    articleType: "Not provided",
+    expectedDeliveryDate: null,
+    routingSteps: [],
+    updatedAt: null,
+    source: "Local",
+  };
+}
+
+function loadBatches() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (Array.isArray(saved)) {
+      return saved.map(normalizeBatch).filter((batch) => batch.records.length);
+    }
+  } catch {
+    // Fall through to legacy migration.
+  }
+
+  return migrateLegacyRecords();
+}
+
+function migrateLegacyRecords() {
+  try {
+    const legacy = (JSON.parse(localStorage.getItem(LEGACY_KEY)) || []).filter((record) =>
+      isValidConsignmentId(record.id),
+    );
+    if (!legacy.length) return [];
+
+    const batch = {
+      id: `batch-${Date.now()}`,
+      createdAt: legacy[0].createdAt || new Date().toISOString(),
+      records: legacy.map((record) => ({
+        ...createRecord(record.id, record.createdAt || new Date().toISOString()),
+        statusKey: record.statusKey || "transit",
+        statusLabel: record.statusLabel || "Queued",
+        updatedAt: record.updatedAt || null,
+      })),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([batch]));
+    return [batch];
   } catch {
     return [];
   }
 }
 
-function saveRecords() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-}
-
-function refreshAll() {
-  const refreshedAt = new Date().toISOString();
-  records = records.map((record) => ({
-    ...record,
-    ...getTrackingUpdate(record, refreshedAt),
-  }));
-
-  localStorage.setItem(REFRESH_KEY, refreshedAt);
-  saveRecords();
-  render();
-}
-
-function getTrackingUpdate(record, refreshedAt) {
-  const ageDays = Math.max(0, daysBetween(record.createdAt, refreshedAt));
-  const seed = hash(record.id);
-  const hasDelay = seed % 11 === 0 && ageDays >= 4;
-  const stage = hasDelay ? 4 : Math.min(3, Math.floor(ageDays / 2) + (seed % 2));
-  const update = statusFlow[stage];
-
+function normalizeBatch(batch) {
   return {
-    statusKey: update.key,
-    statusLabel: update.label,
-    location: pickLocation(seed, update.location),
-    detail: update.detail,
-    step: update.step,
-    origin: pickOrigin(seed),
-    destination: pickDestination(seed),
-    updatedAt: refreshedAt,
+    id: batch.id || `batch-${Date.now()}`,
+    createdAt: batch.createdAt || new Date().toISOString(),
+    records: Array.isArray(batch.records)
+      ? batch.records.filter((record) => isValidConsignmentId(record.id)).map(normalizeRecord)
+      : [],
   };
 }
 
-function pickLocation(seed, fallback) {
-  const locations = [
-    "Delhi RMS",
-    "Mumbai NSH",
-    "Kolkata RMS",
-    "Bengaluru NSH",
-    "Lucknow RMS",
-    "Patna RMS",
-    "Jaipur Hub",
-    "Destination post office",
-  ];
-
-  return fallback === "Customer address" || fallback === "Booking office"
-    ? fallback
-    : locations[seed % locations.length];
+function normalizeRecord(record) {
+  return {
+    ...createRecord(record.id, record.createdAt || new Date().toISOString()),
+    ...record,
+    location: record.location || "Awaiting live scan",
+    detail: record.detail || "No carrier detail available yet.",
+    articleType: record.articleType || "Not provided",
+    source: record.source || "Local",
+    routingSteps: Array.isArray(record.routingSteps) ? record.routingSteps : [],
+  };
 }
 
-function pickOrigin(seed) {
-  const origins = ["Local post office", "Seller pickup", "Booking counter", "Business booking centre"];
-  return origins[seed % origins.length];
+function saveBatches() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(batches));
 }
 
-function pickDestination(seed) {
-  const destinations = ["Customer address", "Destination city", "Delivery beat", "Final post office"];
-  return destinations[(seed >>> 3) % destinations.length];
+function isValidConsignmentId(value) {
+  return /^[A-Z]{2}\d{9}IN$/.test(String(value || "").toUpperCase());
+}
+
+async function refreshAll() {
+  for (const batch of batches) {
+    await refreshBatch(batch.id, { silent: true });
+  }
+  render();
+}
+
+async function refreshBatch(batchId, options = {}) {
+  const batch = batches.find((item) => item.id === batchId);
+  if (!batch) return;
+
+  const refreshedAt = new Date().toISOString();
+  batch.records = batch.records.map((record) => ({
+    ...record,
+    updatedAt: refreshedAt,
+  }));
+  localStorage.setItem(REFRESH_KEY, refreshedAt);
+  saveBatches();
+  if (!options.silent) render();
+
+  if (location.protocol === "file:") {
+    setApiStatus("Open via 127.0.0.1 for live API", "offline");
+    return;
+  }
+
+  try {
+    setApiStatus("Syncing live", "syncing");
+    const response = await fetch("/api/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courier: "speedpost",
+        trackingNumbers: batch.records.map((record) => record.id),
+      }),
+    });
+
+    if (!response.ok) {
+      setApiStatus("API server error", "offline");
+      return;
+    }
+    const payload = await response.json();
+    if (!payload.success || !Array.isArray(payload.data)) {
+      setApiStatus("API returned no data", "offline");
+      return;
+    }
+
+    const updates = new Map(
+      payload.data
+        .filter((item) => item.success)
+        .map((item) => [item.trackingNumber, mapLiveTracking(item, refreshedAt)]),
+    );
+
+    batch.records = batch.records.map((record) => ({
+      ...record,
+      ...(updates.get(record.id) || {}),
+    }));
+    saveBatches();
+    setApiStatus(updates.size ? "Live API connected" : "No carrier scans yet", updates.size ? "online" : "waiting");
+    if (!options.silent) render();
+  } catch {
+    setApiStatus("API not reachable", "offline");
+  }
+}
+
+function setApiStatus(message, state) {
+  apiStatus.textContent = message;
+  apiStatus.dataset.state = state;
+}
+
+function mapLiveTracking(item, refreshedAt) {
+  const checkpoints = Array.isArray(item.checkpoints) ? item.checkpoints.filter(Boolean) : [];
+  const latest = checkpoints[checkpoints.length - 1];
+  const statusKey = mapProviderStatus(item.status);
+  const statusLabel = labelFromProviderStatus(item.status, item.mostRecentStatus);
+  const step = stepFromStatus(statusKey, item.status, statusLabel);
+
+  return {
+    statusKey,
+    statusLabel,
+    location: latest?.location || item.destinationCity || item.originCity || "Not provided by carrier",
+    detail: latest?.status || item.mostRecentStatus || "No scan detail provided by carrier",
+    step,
+    articleType: item.courier === "speedpost" ? "Speed Post" : "Not provided",
+    expectedDeliveryDate: item.expectedDeliveryDate || null,
+    routingSteps: checkpoints.map((checkpoint) => ({
+      event: checkpoint.status || "Tracking update",
+      office: checkpoint.location || "Not provided by carrier",
+      at: checkpoint.timestamp || refreshedAt,
+    })),
+    updatedAt: refreshedAt,
+    source: "TrackCourier",
+  };
+}
+
+function mapProviderStatus(status) {
+  return {
+    pending: "transit",
+    in_transit: "transit",
+    out_for_delivery: "transit",
+    delivered: "delivered",
+    exception: "attention",
+  }[status] || "transit";
+}
+
+function labelFromProviderStatus(status, fallback) {
+  return (
+    {
+      pending: "Booked",
+      in_transit: "In Transit",
+      out_for_delivery: "Out for Delivery",
+      delivered: "Delivered",
+      exception: "Needs attention",
+    }[status] ||
+    fallback ||
+    "In Transit"
+  );
+}
+
+function stepFromStatus(statusKey, providerStatus, label) {
+  if (statusKey === "delivered") return 4;
+  if (statusKey === "attention") return 3;
+  if (providerStatus === "out_for_delivery") return 3;
+  if (providerStatus === "in_transit") return 2;
+  if (/dispatch/i.test(label)) return 1;
+  return 0;
 }
 
 function render() {
-  const filteredRecords = records.filter((record) => {
-    return activeFilter === "all" || record.statusKey === activeFilter;
+  const activeBatch = batches.find((batch) => batch.id === activeBatchId);
+  const records = batches.flatMap((batch) => batch.records);
+
+  document.querySelector("#total-count").textContent = records.length;
+  document.querySelector("#delivered-count").textContent = countByStatus(records, "delivered");
+  document.querySelector("#transit-count").textContent = countByStatus(records, "transit");
+  document.querySelector("#attention-count").textContent = countByStatus(records, "attention");
+  document.querySelector("#last-refresh").textContent = lastRefreshLabel();
+
+  emptyState.hidden = batches.length > 0;
+  batchBoard.hidden = batches.length === 0 || Boolean(activeBatch);
+  consignmentBoard.hidden = !activeBatch;
+  backButton.hidden = !activeBatch;
+  document.querySelector("#board-eyebrow").textContent = activeBatch ? "Batch View" : "Live Board";
+  document.querySelector("#board-title").textContent = activeBatch
+    ? batchTitle(activeBatch)
+    : "Saved batches";
+
+  renderBatches();
+  renderConsignments(activeBatch);
+}
+
+function renderBatches() {
+  batchBoard.innerHTML = "";
+  batches.forEach((batch, index) => {
+    const card = batchTemplate.content.cloneNode(true);
+    const records = batch.records;
+    const button = card.querySelector(".batch-open");
+    button.dataset.batchId = batch.id;
+    card.querySelector(".batch-remove").dataset.batchId = batch.id;
+    card.querySelector(".batch-kicker").textContent = `Batch ${batches.length - index}`;
+    card.querySelector(".batch-title").textContent = `${records.length} consignments`;
+    card.querySelector(".batch-meta").textContent = formatDate(batch.createdAt);
+    card.querySelector(".batch-delivered").textContent = countByStatus(records, "delivered");
+    card.querySelector(".batch-transit").textContent = countByStatus(records, "transit");
+    card.querySelector(".batch-attention").textContent = countByStatus(records, "attention");
+    batchBoard.appendChild(card);
   });
+}
 
-  table.innerHTML = "";
-  journeyBoard.innerHTML = "";
-  filteredRecords.forEach((record) => {
-    renderJourneyCard(record);
-    const row = rowTemplate.content.cloneNode(true);
-    row.querySelector(".tracking-code").textContent = record.id;
-    row.querySelector(".location").textContent = record.location;
-    row.querySelector(".updated").textContent = formatDate(record.updatedAt);
-    row.querySelector(".age").textContent = `${daysBetween(record.createdAt, new Date().toISOString())}d`;
-    row.querySelector(".note").textContent = record.note || "-";
+function renderConsignments(batch) {
+  consignmentBoard.innerHTML = "";
+  if (!batch) return;
 
-    const pill = row.querySelector(".status-pill");
+  batch.records.forEach((record) => {
+    const card = consignmentTemplate.content.cloneNode(true);
+    const stage = Math.max(0, Math.min(record.step || 0, routeSteps.length - 1));
+    const progress = stage / (routeSteps.length - 1);
+
+    card.querySelector(".parcel-id").textContent = record.id;
+    card.querySelector(".parcel-remove").dataset.id = record.id;
+    card.querySelector(".parcel-status").textContent = record.statusLabel;
+    card.querySelector(".parcel-location").textContent = record.location;
+    card.querySelector(".parcel-updated").textContent = formatDate(record.updatedAt);
+    card.querySelector(".article-type").textContent = record.articleType;
+    card.querySelector(".expected-date").textContent = formatDate(record.expectedDeliveryDate);
+    card.querySelector(".data-source").textContent = record.source;
+
+    const pill = card.querySelector(".status-pill");
     pill.textContent = record.statusLabel;
-    pill.title = record.detail;
     pill.classList.add(`status-${record.statusKey}`);
 
-    row.querySelector(".icon-btn").dataset.id = record.id;
-    table.appendChild(row);
-  });
+    const rail = card.querySelector(".route-rail");
+    rail.style.setProperty("--progress", progress);
+    routeSteps.forEach((label, index) => {
+      const step = document.createElement("span");
+      step.className = "route-dot";
+      if (index < stage) step.classList.add("complete");
+      if (index === stage) step.classList.add("current");
+      step.innerHTML = `<i>${index + 1}</i><b>${label}</b>`;
+      rail.appendChild(step);
+    });
 
-  journeyBoard.hidden = filteredRecords.length === 0;
-  tableWrap.hidden = filteredRecords.length === 0;
-  emptyState.hidden = records.length > 0;
-  document.querySelector("#total-count").textContent = records.length;
-  document.querySelector("#delivered-count").textContent = countByStatus("delivered");
-  document.querySelector("#transit-count").textContent = countByStatus("transit");
-  document.querySelector("#attention-count").textContent = countByStatus("attention");
-  document.querySelector("#board-title").textContent =
-    activeFilter === "all" ? "Saved consignments" : `${labelFor(activeFilter)} consignments`;
-  document.querySelector("#last-refresh").textContent = lastRefreshLabel();
+    const routingList = card.querySelector(".routing-list");
+    if (record.routingSteps.length) {
+      record.routingSteps.forEach((step) => {
+        const item = document.createElement("div");
+        item.className = "routing-item";
+        item.innerHTML = `
+          <time>
+            <strong>${formatRouteDate(step.at)}</strong>
+            <span>${formatRouteTime(step.at)}</span>
+          </time>
+          <span class="routing-check">✓</span>
+          <div>
+            <strong>${step.event}</strong>
+            <span>${step.office}</span>
+          </div>
+        `;
+        routingList.appendChild(item);
+      });
+    } else {
+      const item = document.createElement("div");
+      item.className = "routing-empty";
+      item.textContent = "No routing scans provided by the tracking API yet.";
+      routingList.appendChild(item);
+    }
+
+    consignmentBoard.appendChild(card);
+  });
 }
 
-function renderJourneyCard(record) {
-  const card = journeyTemplate.content.cloneNode(true);
-  const stage = Math.max(0, Math.min(record.step ?? 0, routeSteps.length - 1));
-  const progress = `${(stage / (routeSteps.length - 1)) * 100}%`;
-
-  card.querySelector(".tracking-code").textContent = record.id;
-  card.querySelector("h4").textContent = record.note || "Parcel journey";
-  card.querySelector(".origin").textContent = record.origin || "Booking office";
-  card.querySelector(".current").textContent = record.location;
-  card.querySelector(".destination").textContent = record.destination || "Customer address";
-  card.querySelector(".scan-line").textContent = `${record.detail} • ${formatDate(record.updatedAt)}`;
-
-  const pill = card.querySelector(".status-pill");
-  pill.textContent = record.statusLabel;
-  pill.classList.add(`status-${record.statusKey}`);
-
-  const progressBar = card.querySelector(".route-progress");
-  progressBar.style.width = progress;
-
-  const stops = card.querySelector(".route-stops");
-  routeSteps.forEach((label, index) => {
-    const stop = document.createElement("div");
-    stop.className = "route-stop";
-    if (index < stage) stop.classList.add("complete");
-    if (index === stage) stop.classList.add("current");
-    stop.style.left = `${(index / (routeSteps.length - 1)) * 100}%`;
-    stop.innerHTML = `<span>${index + 1}</span><strong>${label}</strong>`;
-    stops.appendChild(stop);
-  });
-
-  journeyBoard.appendChild(card);
-}
-
-function countByStatus(status) {
+function countByStatus(records, status) {
   return records.filter((record) => record.statusKey === status).length;
 }
 
-function labelFor(status) {
-  return {
-    delivered: "Delivered",
-    transit: "In transit",
-    attention: "Attention",
-  }[status];
+function batchTitle(batch) {
+  return `${batch.records.length} consignments`;
 }
 
 function formatDate(value) {
-  if (!value) return "-";
+  if (!value) return "Not provided";
   return new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function formatRouteDate(value) {
+  if (!value) return "Not provided";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function formatRouteTime(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
   }).format(new Date(value));
 }
 
@@ -282,26 +476,18 @@ function lastRefreshLabel() {
   return value ? `Last refreshed ${formatDate(value)}` : "Not refreshed yet";
 }
 
-function daysBetween(start, end) {
-  const diff = new Date(end).getTime() - new Date(start).getTime();
-  return Math.floor(diff / 86_400_000);
-}
-
-function hash(value) {
-  return value.split("").reduce((total, char) => {
-    return (total * 31 + char.charCodeAt(0)) >>> 0;
-  }, 7);
-}
-
 function exportCsv() {
-  const header = ["tracking_id", "status", "location", "last_update", "note"];
-  const rows = records.map((record) => [
-    record.id,
-    record.statusLabel,
-    record.location,
-    record.updatedAt || "",
-    record.note || "",
-  ]);
+  const header = ["batch", "tracking_id", "status", "last_location", "last_update", "source"];
+  const rows = batches.flatMap((batch, index) =>
+    batch.records.map((record) => [
+      `Batch ${batches.length - index}`,
+      record.id,
+      record.statusLabel,
+      record.location,
+      record.updatedAt || "",
+      record.source || "",
+    ]),
+  );
   const csv = [header, ...rows]
     .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))
     .join("\n");
@@ -310,7 +496,7 @@ function exportCsv() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "postpilot-trackings.csv";
+  link.download = "postpilot-batches.csv";
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -321,39 +507,20 @@ function importCsv(event) {
 
   const reader = new FileReader();
   reader.onload = () => {
-    const lines = String(reader.result)
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const ids = lines
-      .flatMap((line) => line.split(","))
-      .map((item) => item.replaceAll('"', "").trim().toUpperCase())
-      .filter((item) => item && !item.includes("TRACKING"));
-
-    const existingIds = new Set(records.map((record) => record.id));
-    const createdAt = new Date().toISOString();
-    ids.forEach((id) => {
-      if (!existingIds.has(id)) {
-        records.push({
-          id,
-          note: "CSV import",
-          createdAt,
-          statusKey: "transit",
-          statusLabel: "Queued",
-          location: "Waiting for first refresh",
-          detail: "Saved locally",
-          step: 0,
-          origin: "Booking office",
-          destination: "Customer address",
-          updatedAt: null,
-        });
-      }
-    });
-    saveRecords();
-    refreshAll();
+    const ids = parseTrackingIds(String(reader.result));
+    if (ids.length) {
+      const batch = createBatch(ids);
+      batches.unshift(batch);
+      activeBatchId = batch.id;
+      saveBatches();
+      render();
+      refreshBatch(batch.id);
+    }
   };
   reader.readAsText(file);
   event.target.value = "";
 }
 
+render();
+setApiStatus(location.protocol === "file:" ? "Open via 127.0.0.1 for live API" : "Ready for live API", location.protocol === "file:" ? "offline" : "waiting");
 refreshAll();

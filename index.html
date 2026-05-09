@@ -8,16 +8,16 @@
   </head>
   <body>
     <main class="shell">
-      <aside class="sidebar" aria-label="Dashboard summary">
+      <aside class="sidebar" aria-label="PostPilot controls">
         <div class="brand">
           <span class="brand-mark" aria-hidden="true">〒</span>
           <div>
             <h1>PostPilot</h1>
-            <p>India Post bulk tracker</p>
+            <p>Bulk India Post tracking</p>
           </div>
         </div>
 
-        <section class="panel compact">
+        <section class="panel today-card">
           <p class="eyebrow">Today</p>
           <div class="hero-number" id="total-count">0</div>
           <p class="muted">saved consignments</p>
@@ -41,18 +41,17 @@
           </div>
         </section>
 
-        <section class="panel">
-          <p class="eyebrow">Add Tracking IDs</p>
+        <section class="panel input-panel">
+          <p class="eyebrow">New Batch</p>
           <form id="tracking-form">
             <label class="sr-only" for="tracking-input">Tracking IDs</label>
             <textarea
               id="tracking-input"
               rows="8"
-              placeholder="Paste India Post IDs, one per line"
+              placeholder="Paste India Post tracking IDs, one per line"
             ></textarea>
-            <label class="sr-only" for="note-input">Optional note</label>
-            <input id="note-input" type="text" placeholder="Optional batch note" />
-            <button type="submit">Save IDs</button>
+            <p class="form-hint" id="form-hint">Each save creates one batch.</p>
+            <button type="submit">Create Batch</button>
           </form>
         </section>
       </aside>
@@ -71,99 +70,101 @@
           <input id="csv-input" type="file" accept=".csv,text/csv" hidden />
         </header>
 
-        <nav class="filters" aria-label="Tracking filters">
-          <button class="active" data-filter="all" type="button">All</button>
-          <button data-filter="delivered" type="button">Delivered</button>
-          <button data-filter="transit" type="button">In transit</button>
-          <button data-filter="attention" type="button">Attention</button>
-        </nav>
-
-        <section class="table-panel" aria-live="polite">
-          <div class="table-head">
+        <section class="board-panel" aria-live="polite">
+          <div class="board-head">
             <div>
-              <p class="eyebrow">Live Board</p>
-              <h3 id="board-title">Saved consignments</h3>
+              <p class="eyebrow" id="board-eyebrow">Live Board</p>
+              <h3 id="board-title">Batches</h3>
             </div>
-            <p class="muted" id="last-refresh">Not refreshed yet</p>
+          <div class="board-actions">
+              <p class="api-status" id="api-status">Checking API</p>
+              <button class="ghost small" id="back-btn" type="button" hidden>Back to batches</button>
+              <p class="muted" id="last-refresh">Not refreshed yet</p>
+            </div>
           </div>
 
           <div class="empty-state" id="empty-state">
             <div class="empty-art" aria-hidden="true">
               <span></span><span></span><span></span>
             </div>
-            <h3>No tracking IDs yet</h3>
-            <p>Paste a batch once. PostPilot will keep it here and refresh when you open the dashboard.</p>
+            <h3>No batches yet</h3>
+            <p>Paste a group of tracking IDs once. PostPilot saves it as a batch and refreshes it when you open the dashboard.</p>
           </div>
 
-          <div class="journey-board" id="journey-board" hidden></div>
-
-          <div class="table-wrap" id="table-wrap" hidden>
-            <table>
-              <thead>
-                <tr>
-                  <th>Tracking ID</th>
-                  <th>Status</th>
-                  <th>Last location</th>
-                  <th>Last update</th>
-                  <th>Age</th>
-                  <th>Note</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="tracking-table"></tbody>
-            </table>
-          </div>
+          <div class="batch-board" id="batch-board" hidden></div>
+          <div class="consignment-board" id="consignment-board" hidden></div>
         </section>
       </section>
     </main>
 
-    <template id="row-template">
-      <tr>
-        <td class="tracking-code"></td>
-        <td><span class="status-pill"></span></td>
-        <td class="location"></td>
-        <td class="updated"></td>
-        <td class="age"></td>
-        <td class="note"></td>
-        <td><button class="icon-btn" type="button" aria-label="Remove tracking ID">×</button></td>
-      </tr>
+    <template id="batch-template">
+      <article class="batch-card">
+        <button class="batch-open" type="button">
+          <span class="batch-kicker"></span>
+          <strong class="batch-title"></strong>
+          <span class="batch-meta"></span>
+        </button>
+        <button class="remove-btn batch-remove" type="button" aria-label="Delete batch">×</button>
+        <div class="batch-strip">
+          <span class="mini-stat delivered"></span>
+          <strong class="batch-delivered">0</strong>
+          <span class="mini-stat transit"></span>
+          <strong class="batch-transit">0</strong>
+          <span class="mini-stat attention"></span>
+          <strong class="batch-attention">0</strong>
+        </div>
+      </article>
     </template>
 
-    <template id="journey-template">
-      <article class="journey-card">
-        <header class="journey-card-head">
-          <div>
-            <p class="tracking-code"></p>
-            <h4></h4>
-          </div>
+    <template id="consignment-template">
+      <article class="parcel-card">
+        <button class="parcel-main" type="button">
+          <span class="parcel-icon" aria-hidden="true">〒</span>
+          <span>
+            <span class="eyebrow">Consignment</span>
+            <strong class="parcel-id"></strong>
+          </span>
           <span class="status-pill"></span>
-        </header>
+        </button>
+        <button class="remove-btn parcel-remove" type="button" aria-label="Delete consignment">×</button>
 
-        <div class="route-scene" aria-hidden="true">
-          <div class="route-skyline">
-            <span></span><span></span><span></span><span></span>
-          </div>
-          <div class="route-line"></div>
-          <div class="route-progress"></div>
-          <div class="route-stops"></div>
-        </div>
-
-        <div class="journey-meta">
+        <div class="parcel-glance">
           <div>
-            <span>From</span>
-            <strong class="origin"></strong>
+            <span>Status</span>
+            <strong class="parcel-status"></strong>
           </div>
           <div>
-            <span>Current</span>
-            <strong class="current"></strong>
+            <span>Last Location</span>
+            <strong class="parcel-location"></strong>
           </div>
           <div>
-            <span>To</span>
-            <strong class="destination"></strong>
+            <span>Updated</span>
+            <strong class="parcel-updated"></strong>
           </div>
         </div>
 
-        <p class="scan-line"></p>
+        <div class="route-rail" aria-label="Consignment route progress"></div>
+
+        <section class="parcel-details" hidden>
+          <div class="detail-grid">
+            <div>
+              <span>Article Type</span>
+              <strong class="article-type"></strong>
+            </div>
+            <div>
+              <span>Expected Delivery</span>
+              <strong class="expected-date"></strong>
+            </div>
+            <div>
+              <span>Source</span>
+              <strong class="data-source"></strong>
+            </div>
+          </div>
+          <div class="routing-section">
+            <h4>Routing Steps</h4>
+            <div class="routing-list"></div>
+          </div>
+        </section>
       </article>
     </template>
 

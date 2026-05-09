@@ -1,57 +1,48 @@
 # PostPilot India
 
-A minimalist bulk India Post tracking dashboard for small businesses.
+PostPilot India is a batch-first dashboard for tracking multiple India Post consignments in one place.
 
-## Problem
+## What It Does
 
-Small sellers often ship multiple orders through India Post and receive 10-50 tracking IDs at a time. India Post tracking is usually checked one tracking ID at a time, which creates a slow feedback loop with customers.
+- Create a batch from multiple tracking IDs
+- Open a batch to view all consignments
+- Expand a consignment to see route steps and provider data
+- Refresh tracking data through a backend API
+- Delete batches or individual consignments
+- Import and export CSV
 
-PostPilot India saves tracking IDs once and shows every shipment in a single dashboard.
+## API Status
 
-## Features
+Official India Post tracking is available on the public portal, but that flow currently uses CAPTCHA.  
+That means there is no straightforward public self-serve API flow for direct app integration.
 
-- Save multiple tracking IDs at once
-- Refresh all consignments when the dashboard opens
-- Filter by delivered, in transit, and attention
-- Store tracking data locally in the browser
-- Import CSV batches
-- Export current dashboard as CSV
-- Swappable tracking provider layer for a real India Post API
+Current implementation uses a backend adapter with TrackCourier so API keys stay server-side and the UI can consume a normalized response.
 
-## Current Tracking Provider
-
-The first version uses deterministic demo updates so the UI and workflow can be tested without depending on fragile scraping or paid APIs.
-
-The app is structured so a real provider can replace `getTrackingUpdate()` in `src/app.js`.
-
-Recommended real provider options:
-
-- TrackCourier API
-- Tracktry
-- PKGE
-- A backend service that calls an approved India Post/courier API
-
-Direct scraping of India Post should be avoided unless legal, rate-limit, and captcha issues are handled properly.
+If the provider returns only status and no checkpoints, PostPilot shows that honestly instead of inventing route history.
 
 ## Run Locally
 
-Open `index.html` in a browser.
-
-For a local server:
+Start the backend:
 
 ```bash
-python3 -m http.server 8080
+TRACKCOURIER_API_KEY=your_api_key node server.js
 ```
 
-Then open `http://localhost:8080`.
+Open:
 
-## Roadmap
+`http://127.0.0.1:8084`
 
-- Add real courier API backend
-- Add account login
-- Add scheduled refresh
-- Add WhatsApp/customer share links
-- Add delivery exception alerts
-- Add order/customer columns
-- Add GitHub Pages deployment
+Do not use `file://.../index.html` for live API mode.
 
+## Current Stack
+
+- Frontend: vanilla HTML/CSS/JS
+- Backend: Node.js (`server.js`)
+- Provider: TrackCourier API (`/api/track`)
+
+## Next Work
+
+- Add second provider adapter for better scan coverage
+- Add per-batch provider/courier selection
+- Add raw provider response debug panel
+- Improve mapping for partial responses
