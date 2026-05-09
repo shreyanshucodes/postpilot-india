@@ -95,6 +95,8 @@
             <p>Paste a batch once. PostPilot will keep it here and refresh when you open the dashboard.</p>
           </div>
 
+          <div class="journey-board" id="journey-board" hidden></div>
+
           <div class="table-wrap" id="table-wrap" hidden>
             <table>
               <thead>
@@ -125,6 +127,44 @@
         <td class="note"></td>
         <td><button class="icon-btn" type="button" aria-label="Remove tracking ID">×</button></td>
       </tr>
+    </template>
+
+    <template id="journey-template">
+      <article class="journey-card">
+        <header class="journey-card-head">
+          <div>
+            <p class="tracking-code"></p>
+            <h4></h4>
+          </div>
+          <span class="status-pill"></span>
+        </header>
+
+        <div class="route-scene" aria-hidden="true">
+          <div class="route-skyline">
+            <span></span><span></span><span></span><span></span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-progress"></div>
+          <div class="route-stops"></div>
+        </div>
+
+        <div class="journey-meta">
+          <div>
+            <span>From</span>
+            <strong class="origin"></strong>
+          </div>
+          <div>
+            <span>Current</span>
+            <strong class="current"></strong>
+          </div>
+          <div>
+            <span>To</span>
+            <strong class="destination"></strong>
+          </div>
+        </div>
+
+        <p class="scan-line"></p>
+      </article>
     </template>
 
     <script src="./src/app.js"></script>
